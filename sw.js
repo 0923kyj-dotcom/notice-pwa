@@ -1,6 +1,6 @@
 /* 서비스 워커: 오프라인 캐시 + 알림 시연(지연 표시, 클릭 이동)
    배포할 때마다 CACHE 버전을 올린다 (mgam-v1 → mgam-v2 …). 올리지 않으면 이전 파일이 계속 보인다. */
-const CACHE = 'mgam-v4';
+const CACHE = 'mgam-v5';
 const PRECACHE = [
   './',
   './index.html',

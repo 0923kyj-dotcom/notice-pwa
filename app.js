@@ -90,6 +90,8 @@ async function loadData() {
 }
 // 관심 분야 필터를 적용한 공지
 const rows = () => state.cat === 'all' ? ALL : ALL.filter(r => r.cat === state.cat);
+// 기준일 시점 재현: 기준일까지 게시된 공지만 (홈·알림·배지·찾기의 다가오는 마감에 사용)
+const shown = (b = baseN()) => rows().filter(r => r.p <= b);
 
 // ====== 상단 띠 · 칩 ======
 function renderBand() {
@@ -109,7 +111,7 @@ function renderChips() {
 const TIGHT = 7;                                   // 안내 기간 7일 이하면 '촉박'
 const byUrgency = (a, b) => a.d - b.d || a.len - b.len || a.id.localeCompare(b.id);
 // 이번 주: 기준일이 속한 주(월~일) 가운데 기준일 당일 이후 마감. 다음 주: 그다음 월~일
-function weekSets(b = baseN(), list = rows()) {
+function weekSets(b = baseN(), list = shown(b)) {
   const w = mon(b);
   return {
     w,
@@ -118,7 +120,7 @@ function weekSets(b = baseN(), list = rows()) {
   };
 }
 // 기준일 이후 마감이 가장 가까운 공지 (알림 시연용)
-function mostUrgent(b = baseN(), list = rows()) {
+function mostUrgent(b = baseN(), list = shown(b)) {
   return list.filter(r => r.d >= b).sort(byUrgency)[0] || null;
 }
 function ddText(diff) {
@@ -139,7 +141,7 @@ function itemHTML(r, b) {
   return `<li><button type="button" class="item" data-id="${esc(r.id)}">
     ${ddChip(r, b)}
     <span class="it-main"><span class="it-title">${esc(r.title)}</span>
-    <span class="it-meta">${ds(r.d).slice(0, 4) !== ds(b).slice(0, 4) ? ds(r.d).slice(0, 4) + '. ' : ''}${fmtD(r.d)} 마감 · 안내 ${r.len}일 ${tightTag(r)}</span></span></button></li>`;
+    <span class="it-meta">${ds(r.d).slice(0, 4) !== ds(b).slice(0, 4) ? ds(r.d).slice(0, 4) + '. ' : ''}${fmtD(r.d)} 마감 · 게시~마감 ${r.len}일 ${tightTag(r)}</span></span></button></li>`;
 }
 function groupByDate(list, b) {
   const g = new Map();
@@ -159,7 +161,7 @@ const VIEWS = {
       <article class="card week" aria-label="이번 주 마감">
         <p class="wk-label">${esc(weekLabel(w))} · ${fmtD(w)}~${fmtD(w + 6)}</p>
         <p class="big">이번 주 마감 <strong>${thisWeek.length}</strong>건</p>
-        <p class="sub">다음 주 ${nextWeek.length}건</p>
+        <p class="sub">다음 주 ${nextWeek.length}건 · 기준일까지 게시된 공지</p>
         ${top.length ? `<ul class="list urgent">${top.map(r => itemHTML(r, b)).join('')}</ul>`
                      : '<p class="empty">이번 주 남은 마감이 없습니다</p>'}
         ${thisWeek.length + nextWeek.length ? `<button type="button" class="more" id="moreBtn" aria-expanded="${homeExpanded}" aria-controls="weekAll">
@@ -217,6 +219,7 @@ function renderCal(el) {
         <span><i class="sw h-ok"></i>1~5 여유</span><span><i class="sw h-mid"></i>6~10 보통</span>
         <span><i class="sw h-high"></i>11+ 혼잡</span><span><i class="sw part"></i>일부만 집계</span>
         <span><i class="sw base"></i>기준 주</span></p>
+      <p class="legend">전체 기간 자료입니다 (기준일 이후 게시 공지 포함)</p>
     </div>
     <h3 class="sec-h">${esc(weekLabel(w))} <small>${fmtD(w)}~${fmtD(w + 6)} · ${wl.length}건${coverage(w) < COV_MIN ? ' · 일부만 집계' : ''}</small></h3>
     ${wl.length ? `<ul class="list card-list">${wl.map(r => itemHTML(r, b)).join('')}</ul>` : '<p class="empty">마감 공지 없음</p>'}`;
@@ -305,11 +308,13 @@ function renderFind(el) {
 function renderFindList() {
   const b = baseN(), q = findQ.trim().toLowerCase().replace(/\s+/g, '');
   const hit = rows().filter(r => !q || (r.title + r.dept).toLowerCase().replace(/\s+/g, '').includes(q));
-  const up = hit.filter(r => r.d >= b).sort(byUrgency);
+  const up = hit.filter(r => r.d >= b && r.p <= b).sort(byUrgency);
+  const later = hit.filter(r => r.p > b).sort(byUrgency);
   const past = hit.filter(r => r.d < b).sort((x, y) => y.d - x.d || x.id.localeCompare(y.id));
-  $('findCap').textContent = `${hit.length}건 · 다가오는 마감 ${up.length} · 지난 마감 ${past.length}`;
+  $('findCap').textContent = `${hit.length}건 · 다가오는 마감 ${up.length} · 지난 마감 ${past.length}${later.length ? ' · 기준일 이후 게시 ' + later.length : ''}`;
   $('findList').innerHTML = up.map(r => itemHTML(r, b)).join('')
     + (past.length ? `<li class="divider">지난 마감</li>` + past.map(r => itemHTML(r, b)).join('') : '')
+    + (later.length ? `<li class="divider">기준일 이후 게시 (시연 기준일에는 아직 없던 공지)</li>` + later.map(r => itemHTML(r, b)).join('') : '')
     || '<li class="empty">검색 결과 없음</li>';
 }
 
@@ -422,7 +427,7 @@ function openDetail(id) {
       <span class="tag">${r.owner === '외부' ? '외부 기관 마감' : '교내 마감'}</span>${r.ext === '연장' ? '<span class="tag">연장됨</span>' : ''}</p>
     <dl class="facts">
       <div><dt>게시 → 마감</dt><dd>${fmtFull(r.p)} → <b>${fmtFull(r.d)}</b></dd></div>
-      <div><dt>안내 기간</dt><dd>달력 ${r.len}일 · 평일 ${r.biz}일 ${tightTag(r)}</dd></div>
+      <div><dt>게시~마감</dt><dd>달력 ${r.len}일 · 평일 ${r.biz}일 ${tightTag(r)}</dd></div>
       ${biz ? `<div><dt>반복 공지</dt><dd>${esc(biz)} · 지난 회차 ${past}회</dd></div>` : ''}
     </dl>
     <a class="btn-primary wide" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer">원문 보기</a>
@@ -482,7 +487,7 @@ function notificationFor(r, b = baseN()) {
   return {
     title: `${head} · ${shortTitle(r.title)}`,
     options: {
-      body: `${fmtD(r.d)} 마감 · 안내 기간 ${r.len}일`,
+      body: `${fmtD(r.d)} 마감 · 게시~마감 ${r.len}일`,
       data: { id: r.id },
       tag: 'deadline-demo',
       renotify: true,
